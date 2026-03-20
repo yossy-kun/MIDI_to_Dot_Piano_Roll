@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIDI to Dot Piano Roll</title>
+    <script src="https://unpkg.com/@tonejs/midi"></script>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #2d2d2d;
+            --text-color: #eeeeee;
+            --accent-color: #4a90e2;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; }
+        .control-panel {
+            background-color: var(--panel-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 800px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            background: #252525;
+            padding: 10px;
+            border-radius: 6px;
+        }
+        label { font-size: 0.9rem; display: flex; flex-direction: column; gap: 5px; }
+        .row-label { flex-direction: row; align-items: center; }
+        input[type="number"], select {
+            background-color: #1e1e1e;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 6px;
+            border-radius: 4px;
+            width: 140px;
+        }
+        input[type="file"] { font-size: 0.9rem; }
+        .channels-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .channel-color {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 0.8rem;
+            background: #222;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        input[type="color"] {
+            border: none;
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            cursor: pointer;
+            background: none;
+        }
+        .btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover { background-color: #357abd; }
+        .btn:disabled { background-color: #555; cursor: not-allowed; }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            margin-right: 5px;
+        }
+        .btn-off {
+            background-color: #666;
+        }
+        .btn-off:hover {
+            background-color: #555;
+        }
+
+        .canvas-container {
+            width: 100%;
+            max-width: 800px;
+            overflow-x: auto;
+            background-color: var(--panel-bg);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+            display: none;
+        }
+        canvas {
+            image-rendering: pixelated;
+            display: block;
+            height: 128px;
+            background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAOklEQVQYV2NkYGAwYkAD////Z0TRhEsiq8FmEFRDVAO6Q1CD0e0n2WBSXUSWI3L4g+sXfJpI8QFRAABiOhA7yL95uQAAAABJRU5ErkJggg==');
+        }
+        .range-display {
+            font-weight: bold;
+            color: var(--accent-color);
+            background: #1e1e1e;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            display: inline-block;
+        }
+        .size-display {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #ccc;
+            margin-left: 15px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="control-panel">
+        <h1>MIDI to Dot Piano Roll</h1>
+        
+        <div class="control-group">
+            <label>
+                MIDIファイルを選択
+                <input type="file" id="midiInput" accept=".mid,.midi">
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label>
+                真ん中のド (ノート番号60) の表記
+                <select id="middleCSetting">
+                    <option value="2">C3</option>
+                    <option value="1" selected>C4</option>
+                    <option value="0">C5</option>
+                </select>
+            </label>
+
+            <label>
+                一番下のノート番号 (0〜64)
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="number" id="startNote" value="36" min="0" max="64">
+                    <span id="noteRangeDisplay" class="range-display">計算中...</span>
+                    <button id="autoDetectBtn" class="btn btn-small" disabled>自動検出</button>
+                </div>
+            </label>
+
+            <label>
+                1ドットの長さ（時間解像度）
+                <select id="resolution">
+                    <option value="1">4分音符 (1拍 = 1px)</option>
+                    <option value="1.5">4分3連符 (1拍 = 1.5px)</option>
+                    <option value="2">8分音符 (1拍 = 2px)</option>
+                    <option value="3">8分3連符 (1拍 = 3px)</option>
+                    <option value="4" selected>16分音符 (1拍 = 4px)</option>
+                    <option value="6">16分3連符 (1拍 = 6px)</option>
+                    <option value="8">32分音符 (1拍 = 8px)</option>
+                    <option value="12">32分3連符 (1拍 = 12px)</option>
+                    <option value="16">64分音符 (1拍 = 16px)</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label>
+                白鍵の背景色
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="color" id="whiteBgColor" value="#484848">
+                </div>
+            </label>
+            <label>
+                黒鍵の背景色
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="color" id="blackBgColor" value="#303030">
+                </div>
+            </label>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px; width: 100%;">
+                <label class="row-label">
+                    <input type="checkbox" id="transparentAll"> <b>背景を描画しない（完全透過）</b>
+                </label>
+                <label class="row-label">
+                    <input type="checkbox" id="trimSilence" checked> <b>左右の無音部分を自動でカットする</b>
+                </label>
+            </div>
+        </div>
+
+        <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px;">
+                <p style="font-size: 0.9rem; margin: 0;">チャンネル設定 (ON/OFF・カラー)</p>
+                <div>
+                    <button id="chAllOnBtn" class="btn btn-small">すべてON</button>
+                    <button id="chAllOffBtn" class="btn btn-small btn-off">すべてOFF</button>
+                </div>
+            </div>
+            <div class="channels-grid" id="channelsGrid"></div>
+        </div>
+
+        <div class="control-group" style="margin-bottom: 0; background: none; padding: 0; align-items: center;">
+            <button id="generateBtn" class="btn" disabled>画像を生成する</button>
+            <a id="downloadBtn" class="btn" style="display: none;" download="piano_roll.png">PNGをダウンロード</a>
+            <span id="imageSizeDisplay" class="size-display"></span>
+        </div>
+    </div>
+
+    <div class="canvas-container" id="canvasContainer">
+        <canvas id="resultCanvas" height="64"></canvas>
+    </div>
+
+    <script>
+        const defaultColors = [
+            "#CC0012", "#CC5500", "#FFEE00", "#00D924", 
+            "#00D5FF", "#005FCC", "#8800FF", "#FF85CC",
+            "#D95757", "#D9B398", "#BFBB86", "#86BF90",
+            "#98CED9", "#B2AED9", "#BB98D9", "#D998DE"
+        ];
+
+        let currentMidiData = null;
+        let originalFileName = "";
+
+        // ノート範囲の計算と表示更新
+        const updateNoteRangeDisplay = () => {
+            const startNote = parseInt(document.getElementById('startNote').value) || 0;
+            const middleCOffset = parseInt(document.getElementById('middleCSetting').value);
+            const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+            const getNoteString = (midiNum) => {
+                const noteName = notes[midiNum % 12];
+                const octave = Math.floor(midiNum / 12) - middleCOffset;
+                return `${noteName}${octave}`;
+            };
+
+            const endNote = startNote + 63;
+            document.getElementById('noteRangeDisplay').textContent = 
+                `画像化範囲: ${getNoteString(startNote)} 〜 ${getNoteString(endNote)}`;
+        };
+
+        document.getElementById('startNote').addEventListener('input', updateNoteRangeDisplay);
+        document.getElementById('middleCSetting').addEventListener('change', updateNoteRangeDisplay);
+        
+        updateNoteRangeDisplay();
+
+        const channelsGrid = document.getElementById('channelsGrid');
+        for (let i = 0; i < 16; i++) {
+            const div = document.createElement('div');
+            div.className = 'channel-color';
+            div.innerHTML = `
+                <label style="flex-direction: row; align-items: center; gap: 4px; cursor: pointer;">
+                    <input type="checkbox" id="chEnable${i}" checked> Ch ${i + 1}
+                </label>
+                <input type="color" id="colorCh${i}" value="${defaultColors[i]}" style="margin-top: 5px;">
+            `;
+            channelsGrid.appendChild(div);
+        }
+
+        document.getElementById('chAllOnBtn').addEventListener('click', () => {
+            for (let i = 0; i < 16; i++) {
+                document.getElementById(`chEnable${i}`).checked = true;
+            }
+        });
+        document.getElementById('chAllOffBtn').addEventListener('click', () => {
+            for (let i = 0; i < 16; i++) {
+                document.getElementById(`chEnable${i}`).checked = false;
+            }
+        });
+
+        document.getElementById('midiInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            originalFileName = file.name.replace(/\.[^/.]+$/, "");
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    currentMidiData = new Midi(e.target.result);
+                    document.getElementById('generateBtn').disabled = false;
+                    document.getElementById('autoDetectBtn').disabled = false;
+                } catch (err) {
+                    alert("MIDIファイルの解析に失敗しました。\n詳細: " + err.message);
+                    console.error(err);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 自動検出ボタンの処理
+        document.getElementById('autoDetectBtn').addEventListener('click', () => {
+            if (!currentMidiData) return;
+            
+            let minNote = 127;
+            let maxNote = 0;
+            let hasNotes = false;
+
+            currentMidiData.tracks.forEach(track => {
+                track.notes.forEach(note => {
+                    if (note.midi < minNote) minNote = note.midi;
+                    if (note.midi > maxNote) maxNote = note.midi;
+                    hasNotes = true;
+                });
+            });
+
+            if (hasNotes) {
+                // 音域が64に収まるように中央寄せで開始ノートを計算
+                const range = maxNote - minNote;
+                const padding = Math.floor((63 - range) / 2);
+                let optimalStart = minNote - padding;
+                
+                // 0〜64の範囲内に丸める
+                optimalStart = Math.max(0, Math.min(64, optimalStart));
+                
+                document.getElementById('startNote').value = optimalStart;
+                updateNoteRangeDisplay();
+            } else {
+                alert("MIDIファイル内にノートデータが見つかりませんでした。");
+            }
+        });
+
+        document.getElementById('generateBtn').addEventListener('click', () => {
+            if (!currentMidiData) return;
+
+            const startNote = parseInt(document.getElementById('startNote').value);
+            const resolutionDivisor = parseFloat(document.getElementById('resolution').value);
+            const canvas = document.getElementById('resultCanvas');
+            const ctx = canvas.getContext('2d');
+
+            const ppq = currentMidiData.header.ppq; 
+            const ticksPerPixel = ppq / resolutionDivisor; 
+
+            let allNotes = [];
+            let globalMaxTick = 0;
+
+            currentMidiData.tracks.forEach((track) => {
+                const ch = track.channel !== undefined ? track.channel : 0; 
+                
+                track.notes.forEach(note => {
+                    allNotes.push({
+                        noteNum: note.midi,
+                        ticks: note.ticks,
+                        durationTicks: note.durationTicks,
+                        channel: ch
+                    });
+                    const endTick = note.ticks + note.durationTicks;
+                    if (endTick > globalMaxTick) globalMaxTick = endTick;
+                });
+            });
+
+            const trimSilence = document.getElementById('trimSilence').checked;
+            let minTickToDraw = Infinity;
+            let maxTickToDraw = 0;
+
+            allNotes.forEach(item => {
+                if (item.noteNum < startNote || item.noteNum > startNote + 63) return;
+                const isEnabled = document.getElementById(`chEnable${item.channel}`).checked;
+                if (!isEnabled) return;
+
+                if (item.ticks < minTickToDraw) minTickToDraw = item.ticks;
+                const endTick = item.ticks + item.durationTicks;
+                if (endTick > maxTickToDraw) maxTickToDraw = endTick;
+            });
+
+            if (minTickToDraw === Infinity) {
+                minTickToDraw = 0;
+                maxTickToDraw = 1; 
+            }
+
+            if (!trimSilence) {
+                minTickToDraw = 0;
+                maxTickToDraw = globalMaxTick;
+            }
+
+            const requiredWidth = Math.max(1, Math.ceil((maxTickToDraw - minTickToDraw) / ticksPerPixel));
+            canvas.width = requiredWidth;
+            // canvas.height はHTMLタグで指定された 64 に維持されます
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const transparentAll = document.getElementById('transparentAll').checked;
+            if (!transparentAll) {
+                const whiteColor = document.getElementById('whiteBgColor').value;
+                const blackColor = document.getElementById('blackBgColor').value;
+
+                const isBlackKey = (note) => [1, 3, 6, 8, 10].includes(note % 12);
+                for (let y = 0; y < 64; y++) {
+                    const currentNote = startNote + 63 - y;
+                    ctx.fillStyle = isBlackKey(currentNote) ? blackColor : whiteColor;
+                    ctx.fillRect(0, y, canvas.width, 1);
+                }
+            }
+
+            allNotes.sort((a, b) => b.channel - a.channel);
+
+            allNotes.forEach(item => {
+                if (item.noteNum < startNote || item.noteNum > startNote + 63) return;
+                
+                const isEnabled = document.getElementById(`chEnable${item.channel}`).checked;
+                if (!isEnabled) return;
+
+                const x = Math.floor((item.ticks - minTickToDraw) / ticksPerPixel);
+                const w = Math.max(1, Math.floor(item.durationTicks / ticksPerPixel));
+                const y = 63 - (item.noteNum - startNote); 
+
+                const colorInput = document.getElementById(`colorCh${item.channel}`);
+                ctx.fillStyle = colorInput ? colorInput.value : '#FFFFFF';
+
+                ctx.fillRect(x, y, w, 1);
+            });
+
+            document.getElementById('canvasContainer').style.display = 'block';
+            
+            // サイズ表示とテクスチャ枚数の更新
+            const sizeDisplay = document.getElementById('imageSizeDisplay');
+            const textureCount = Math.ceil(canvas.width / 64);
+            sizeDisplay.textContent = `サイズ: ${canvas.width} × ${canvas.height} ｜ テクスチャ枚数: ${textureCount}枚`;
+            sizeDisplay.style.display = 'inline-block';
+
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.href = canvas.toDataURL('image/png');
+            downloadBtn.setAttribute('download', `${originalFileName}.png`);
+            downloadBtn.style.display = 'inline-block';
+        });
+    </script>
+</body>
+</html>
