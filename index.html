@@ -69,14 +69,21 @@
             padding: 8px;
             border-radius: 6px;
         }
-        input[type="color"] {
-            border: none;
+        
+        /* カスタムカラーボタンのデザイン */
+        .color-swatch-btn {
+            border: 2px solid #555;
             width: 32px;
             height: 32px;
             padding: 0;
             cursor: pointer;
-            background: none;
+            border-radius: 4px;
+            transition: border-color 0.2s;
         }
+        .color-swatch-btn:hover {
+            border-color: #aaa;
+        }
+
         .btn {
             background-color: var(--accent-color);
             color: white;
@@ -136,6 +143,64 @@
             margin-left: 15px;
             display: none;
         }
+
+        /* カラーパレットモーダルのスタイル */
+        .palette-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .palette-modal {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.8);
+            max-width: 95vw;
+            overflow-x: auto;
+        }
+        .palette-modal h3 {
+            margin-top: 0;
+            font-size: 1rem;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #ddd;
+        }
+        .palette-grid {
+            display: grid;
+            /* 3列ごとに8pxの余白を挟む（元の半分の隙間） */
+            grid-template-columns: 24px 24px 24px 8px 24px 24px 24px 8px 24px 24px 24px 8px 24px 24px 24px 8px 24px 24px 24px;
+            /* 3行ごとに8pxの余白を挟む */
+            grid-template-rows: 24px 24px 24px 8px 24px 24px 24px 8px 24px 24px 24px;
+            gap: 4px;
+        }
+        .palette-cell {
+            width: 100%;
+            height: 100%;
+            border-radius: 3px;
+            cursor: pointer;
+            box-sizing: border-box;
+        }
+        .palette-cell.color-cell {
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .palette-cell.color-cell:hover {
+            transform: scale(1.15);
+            border: 2px solid #fff;
+            z-index: 2;
+        }
+        .palette-cell.empty-cell {
+            background: transparent;
+            cursor: default;
+        }
+        .palette-close-btn {
+            display: block;
+            margin: 20px auto 0;
+            background: #555;
+        }
     </style>
 </head>
 <body>
@@ -189,13 +254,15 @@
             <label>
                 白鍵の背景色
                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="color" id="whiteBgColor" value="#484848">
+                    <button type="button" class="color-swatch-btn" id="btn-whiteBgColor" style="background-color: #484848;" onclick="openPalette('whiteBgColor')"></button>
+                    <input type="hidden" id="whiteBgColor" value="#484848">
                 </div>
             </label>
             <label>
                 黒鍵の背景色
                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="color" id="blackBgColor" value="#303030">
+                    <button type="button" class="color-swatch-btn" id="btn-blackBgColor" style="background-color: #303030;" onclick="openPalette('blackBgColor')"></button>
+                    <input type="hidden" id="blackBgColor" value="#303030">
                 </div>
             </label>
             <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px; width: 100%;">
@@ -230,16 +297,90 @@
         <canvas id="resultCanvas" height="64"></canvas>
     </div>
 
+    <div class="palette-modal-overlay" id="paletteModalOverlay" onclick="closePaletteOnBgClick(event)">
+        <div class="palette-modal">
+            <h3>色を選択</h3>
+            <div class="palette-grid" id="paletteGrid"></div>
+            <button type="button" class="btn btn-small palette-close-btn" onclick="closePalette()">キャンセル</button>
+        </div>
+    </div>
+
     <script>
+        // CSVから抽出したカラーパレットデータに、横の余白用の空行を追加
+        const csvPaletteData = [
+            ['#FFFFFF','#EDEDED','#D9D9D9','','#F3E6FF','#DCB3FF','#C685FF','','#E6FBFF','#CCF7FF','#85EBFF','','#F7FFE6','#E6FFB3','#D6FF85','','#FFE6E6','#FFB3B3','#FF8585'],
+            ['#B5B5B5','#909090','#6C6C6C','','#8800FF','#520099','#29004D','','#00D5FF','#00AACC','#006B80','','#AAFF00','#90D900','#558000','','#FF0000','#CC0012','#800000'],
+            ['#484848','#303030','#000000','','#BB98D9','#846D99','#5B5266','','#98CED9','#5A7A80','#36484D','','#C4D998','#89996C','#3D4D1F','','#D95757','#804040','#4D1F1F'],
+            Array(19).fill(''), // 3行ごとの横の余白
+            ['','','','','#FEE6FF','#FBB3FF','#F985FF','','#E6F2FF','#B3D6FF','#85BEFF','','#CCFFD3','#99FFAA','#66FF7E','','#FFF0E6','#FFD3B3','#FFB885'],
+            ['','','','','#F200FF','#C200CC','#7A0080','','#1080FF','#005FCC','#003C80','','#00D924','#009919','#00590E','','#FF6A00','#CC5500','#803500'],
+            ['','','','','#D698D9','#7D4080','#4B1F4D','','#98B6D9','#405E80','#1F344D','','#86BF90','#598060','#1F3323','','#D9B398','#805B40','#4D321F'],
+            Array(19).fill(''), // 3行ごとの横の余白
+            ['','','','','#FFE6F5','#FFB3DF','#FF85CC','','#E8E6FF','#D0CCFF','#A199FF','','#E6FFFA','#B3FFF0','#85FFE7','','#FFFDE6','#FFFAB3','#FFF785'],
+            ['','','','','#FF0095','#CC0077','#80004B','','#1500FF','#0F00B3','#07004D','','#00FFCF','#00CCA3','#008066','','#FFEE00','#CCBE00','#807700'],
+            ['','','','','#D998BE','#80536D','#4D1F3A','','#B2AED9','#656282','#3B3A4D','','#98D9CC','#6B9990','#1F4D43','','#BFBB86','#807E5A','#4D4B32']
+        ];
+
+        // デフォルトの色（極力パレットにある色に近いもの）
         const defaultColors = [
             "#CC0012", "#CC5500", "#FFEE00", "#00D924", 
             "#00D5FF", "#005FCC", "#8800FF", "#FF85CC",
             "#D95757", "#D9B398", "#BFBB86", "#86BF90",
-            "#98CED9", "#B2AED9", "#BB98D9", "#D998DE"
+            "#98CED9", "#B2AED9", "#BB98D9", "#D998BE" 
         ];
 
         let currentMidiData = null;
         let originalFileName = "";
+
+        // ----- カラーパレット処理 -----
+        let activeColorTargetId = null;
+
+        // パレットを描画
+        const paletteGrid = document.getElementById('paletteGrid');
+        csvPaletteData.forEach(row => {
+            row.forEach(hex => {
+                const cell = document.createElement('div');
+                cell.className = 'palette-cell ' + (hex ? 'color-cell' : 'empty-cell');
+                if (hex) {
+                    cell.style.backgroundColor = hex;
+                    cell.title = hex;
+                    cell.onclick = () => selectColor(hex);
+                }
+                paletteGrid.appendChild(cell);
+            });
+        });
+
+        // パレットを開く
+        function openPalette(targetId) {
+            activeColorTargetId = targetId;
+            document.getElementById('paletteModalOverlay').style.display = 'flex';
+        }
+
+        // 色を選択して閉じる
+        function selectColor(hex) {
+            if (activeColorTargetId) {
+                // 非表示のinput要素の値を更新
+                document.getElementById(activeColorTargetId).value = hex;
+                // ボタンの背景色を更新
+                document.getElementById(`btn-${activeColorTargetId}`).style.backgroundColor = hex;
+            }
+            closePalette();
+        }
+
+        // パレットを閉じる
+        function closePalette() {
+            activeColorTargetId = null;
+            document.getElementById('paletteModalOverlay').style.display = 'none';
+        }
+
+        // 背景クリックで閉じる
+        function closePaletteOnBgClick(e) {
+            if (e.target.id === 'paletteModalOverlay') {
+                closePalette();
+            }
+        }
+        // -----------------------------
+
 
         // ノート範囲の計算と表示更新
         const updateNoteRangeDisplay = () => {
@@ -267,11 +408,13 @@
         for (let i = 0; i < 16; i++) {
             const div = document.createElement('div');
             div.className = 'channel-color';
+            // カスタムカラーボタンとHiddenインプットを生成
             div.innerHTML = `
                 <label style="flex-direction: row; align-items: center; gap: 4px; cursor: pointer;">
                     <input type="checkbox" id="chEnable${i}" checked> Ch ${i + 1}
                 </label>
-                <input type="color" id="colorCh${i}" value="${defaultColors[i]}" style="margin-top: 5px;">
+                <button type="button" class="color-swatch-btn" id="btn-colorCh${i}" style="background-color: ${defaultColors[i]}; margin-top: 5px;" onclick="openPalette('colorCh${i}')"></button>
+                <input type="hidden" id="colorCh${i}" value="${defaultColors[i]}">
             `;
             channelsGrid.appendChild(div);
         }
@@ -324,12 +467,10 @@
             });
 
             if (hasNotes) {
-                // 音域が64に収まるように中央寄せで開始ノートを計算
                 const range = maxNote - minNote;
                 const padding = Math.floor((63 - range) / 2);
                 let optimalStart = minNote - padding;
                 
-                // 0〜64の範囲内に丸める
                 optimalStart = Math.max(0, Math.min(64, optimalStart));
                 
                 document.getElementById('startNote').value = optimalStart;
@@ -394,7 +535,6 @@
 
             const requiredWidth = Math.max(1, Math.ceil((maxTickToDraw - minTickToDraw) / ticksPerPixel));
             canvas.width = requiredWidth;
-            // canvas.height はHTMLタグで指定された 64 に維持されます
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -431,7 +571,6 @@
 
             document.getElementById('canvasContainer').style.display = 'block';
             
-            // サイズ表示とテクスチャ枚数の更新
             const sizeDisplay = document.getElementById('imageSizeDisplay');
             const textureCount = Math.ceil(canvas.width / 64);
             sizeDisplay.textContent = `サイズ: ${canvas.width} × ${canvas.height} ｜ テクスチャ枚数: ${textureCount}枚`;
