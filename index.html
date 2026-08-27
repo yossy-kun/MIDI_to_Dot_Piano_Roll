@@ -595,9 +595,25 @@
             sizeDisplay.style.display = 'inline-block';
 
             const downloadBtn = document.getElementById('downloadBtn');
-            downloadBtn.href = canvas.toDataURL('image/png');
-            downloadBtn.setAttribute('download', `${originalFileName}.png`);
-            downloadBtn.style.display = 'inline-block';
+ 
+ // canvasのデータをBlob（バイナリデータ）として生成する
+ canvas.toBlob((blob) => {
+   if (!blob) {
+     alert("画像の生成に失敗しました（キャンバスのサイズがブラウザの限界を超えている可能性があります）。");
+     return;
+   }
+   
+   // 以前生成したURLがあればメモリ解放
+   if (downloadBtn.href.startsWith('blob:')) {
+     URL.revokeObjectURL(downloadBtn.href);
+   }
+   
+   // Blobから安全なダウンロード用URLを生成
+   const blobUrl = URL.createObjectURL(blob);
+   downloadBtn.href = blobUrl;
+   downloadBtn.setAttribute('download', `${originalFileName}.png`);
+   downloadBtn.style.display = 'inline-block';
+ }, 'image/png');
         });
         
         // ネイティブカラーピッカーで色が変更されたときの処理
