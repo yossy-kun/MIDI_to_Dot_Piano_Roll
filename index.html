@@ -301,7 +301,17 @@
         <div class="palette-modal">
             <h3>色を選択</h3>
             <div class="palette-grid" id="paletteGrid"></div>
-            <button type="button" class="btn btn-small palette-close-btn" onclick="closePalette()">キャンセル</button>
+            
+            <!-- ▼ ここから追加：ネイティブカラーピッカー ▼ -->
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #555; text-align: center;">
+                <label style="display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 10px; cursor: pointer; color: #ddd;">
+                    自由に色を作る (RGB/HSV等):
+                    <input type="color" id="nativeColorPicker" style="width: 32px; height: 32px; padding: 0; border: none; cursor: pointer; background-color: transparent;">
+                </label>
+            </div>
+            <!-- ▲ ここまで追加 ▲ -->
+
+            <button type="button" class="btn btn-small palette-close-btn" onclick="closePalette()">閉じる</button>
         </div>
     </div>
 
@@ -323,8 +333,8 @@
 
         // デフォルトの色（極力パレットにある色に近いもの）
         const defaultColors = [
-            "#CC0012", "#CC5500", "#FFEE00", "#00D924", 
-            "#00D5FF", "#005FCC", "#8800FF", "#FF85CC",
+            "#3985EF", "#EA3E4D", "#2BCA45", "#F4CA25", 
+            "#A457DB", "#F48525", "#30C9E8", "#FF85CC",
             "#D95757", "#D9B398", "#BFBB86", "#86BF90",
             "#98CED9", "#B2AED9", "#BB98D9", "#D998BE" 
         ];
@@ -354,6 +364,14 @@
         function openPalette(targetId) {
             activeColorTargetId = targetId;
             document.getElementById('paletteModalOverlay').style.display = 'flex';
+
+            // --- ここから追加：開いたときに現在の色をピッカーにセット ---
+            const currentColor = document.getElementById(targetId).value;
+            // HEX形式(#RRGGBB)の場合のみセットする
+            if (/^#[0-9A-Fa-f]{6}$/.test(currentColor)) {
+                document.getElementById('nativeColorPicker').value = currentColor;
+            }
+            // --- ここまで追加 ---
         }
 
         // 色を選択して閉じる
@@ -580,6 +598,16 @@
             downloadBtn.href = canvas.toDataURL('image/png');
             downloadBtn.setAttribute('download', `${originalFileName}.png`);
             downloadBtn.style.display = 'inline-block';
+        });
+        
+        // ネイティブカラーピッカーで色が変更されたときの処理
+        document.getElementById('nativeColorPicker').addEventListener('input', (e) => {
+            if (activeColorTargetId) {
+                const hex = e.target.value;
+                // 色のデータとボタンの見た目だけを更新し、モーダルは開いたままにする
+                document.getElementById(activeColorTargetId).value = hex;
+                document.getElementById(`btn-${activeColorTargetId}`).style.backgroundColor = hex;
+            }
         });
     </script>
 </body>
